@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Fragment } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import API from "../../services/api";
 import {
   Copy, Check, Link2, ChevronDown, ChevronUp, ArrowLeft, X, ClipboardList,
   CalendarDays, CheckSquare, Plus, Trash2, ListTodo, MapPin, Compass, Award,
-  AlertTriangle, Sparkles,
+  AlertTriangle, Sparkles, Loader2,
 } from "lucide-react";
+import FinalDestinationView from "../../components/trip/FinalDestinationView";
 
 const TRIP_TYPES = ["Adventure", "Hiking", "Trekking", "Relaxing", "Cultural", "Beach", "Wildlife", "Road Trip"];
 const FOOD_OPTIONS = ["No preference", "Vegetarian", "Non-Vegetarian", "Vegan", "Halal"];
@@ -28,6 +29,7 @@ export default function Planner() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const [user, setUser] = useState(null);
   const [trip, setTrip] = useState(null);
   const [members, setMembers] = useState([]);
   const [role, setRole] = useState("");
@@ -44,9 +46,13 @@ export default function Planner() {
   const [food, setFood] = useState("No preference");
   const [accommodation, setAccommodation] = useState("No preference");
   const [notes, setNotes] = useState("");
+  
+  const [generating, setGenerating] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const [genError, setGenError] = useState(null);
 
   const [isFormExpanded, setIsFormExpanded] = useState(false);
-  const [isIndividualPrefsExpanded, setIsIndividualPrefsExpanded] = useState(false);
+  const [isIndividualPrefsExpanded, setIsIndividualPrefsExpanded] = useState(true);
 
   // Day-by-Day scheduler states
   const [activeDayTab, setActiveDayTab] = useState("All");
@@ -80,10 +86,15 @@ export default function Planner() {
         console.warn(`Planner: /trips/${id}/places failed, continuing without linked places.`, err);
         return { data: { places: [] } };
       }),
+      API.get("/auth/me").catch((err) => {
+        console.warn("Planner: /auth/me failed", err);
+        return { data: null };
+      }),
     ])
-      .then(([tripRes, prefRes, placesRes]) => {
+      .then(([tripRes, prefRes, placesRes, userRes]) => {
         if (cancelled) return;
 
+        setUser(userRes.data);
         setTrip(tripRes.data.trip);
         setMembers(tripRes.data.members);
         setRole(prefRes.data.role);
@@ -201,6 +212,47 @@ export default function Planner() {
       localStorage.setItem(`trip_itinerary_${id}`, JSON.stringify(updatedItinerary));
     } catch (err) {
       alert(err.response?.data?.error || "Failed to remove destination");
+    }
+  };
+
+  const handleGenerateDestination = async () => {
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const prefRes = await API.get(`/trips/${id}/preferences`);
+      const allPrefs = prefRes.data.preferences;
+      if (!allPrefs?.length) {
+        setGenError("No members have submitted preferences yet.");
+        return;
+      }
+      await API.post("/ai/final-recommendation", {
+        tripId: parseInt(id),
+        tripName: trip?.name,
+        members,
+        preferences: allPrefs,
+      });
+      // Instead of relying solely on window reload, re-fetch the trip details
+      const updatedTrip = await API.get(`/trips/${id}`);
+      setTrip(updatedTrip.data.trip);
+    } catch (err) {
+      console.error("Failed to generate recommendation", err);
+      setGenError(err.response?.data?.error || "Failed to generate a recommendation.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleAcceptDestination = async () => {
+    setAccepting(true);
+    try {
+      await API.post(`/trips/${id}/accept-recommendation`);
+      const updatedTrip = await API.get(`/trips/${id}`);
+      setTrip(updatedTrip.data.trip);
+      setMembers(updatedTrip.data.members);
+    } catch (err) {
+      alert(err.response?.data?.error || "Failed to accept recommendation");
+    } finally {
+      setAccepting(false);
     }
   };
 
@@ -362,16 +414,25 @@ export default function Planner() {
           <div className="flex flex-wrap items-center gap-2.5">
             {/* NEW — jump straight to the AI's final pick once there's something to see there.
                 Shown to everyone (not just admins) since members need to view/accept it too. */}
-            {hasFinalDestinationActivity && (
+            {/* NEW — final destination inline instead of separate page */}
+            {hasFinalDestinationActivity && trip?.status !== "ai_processing" && (
               <button
-                onClick={() => navigate(`/planner/${id}/destination`)}
+                onClick={() => {
+                  document.getElementById('final-destination-section')?.scrollIntoView({ behavior: 'smooth' });
+                }}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--accent)]/30
                   bg-[var(--accent)]/5 text-[var(--accent)] text-xs font-bold hover:bg-[var(--accent)]/10
                   transition-colors cursor-pointer"
               >
-                <Sparkles size={14} />
-                {trip?.status === "ai_processing" ? "AI is choosing…" : "View Final Destination"}
+                <Sparkles size={14} /> View Final Destination
               </button>
+            )}
+
+            {trip?.status === "ai_processing" && (
+               <span className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--accent)]/30
+                 bg-[var(--accent)]/5 text-[var(--accent)] text-xs font-bold">
+                 <Loader2 size={14} className="animate-spin" /> AI is choosing…
+               </span>
             )}
 
             {role === "admin" && (
@@ -600,6 +661,29 @@ export default function Planner() {
             </div>
           </div>
 
+          {/* AI Suggested Final Destination Section inline */}
+          {hasFinalDestinationActivity && trip?.final_destination_data && (
+            <div id="final-destination-section" className="mb-6">
+              <FinalDestinationView
+                trip={trip}
+                data={trip.final_destination_data}
+                members={members}
+                onAccept={handleAcceptDestination}
+                hasAccepted={!!members.find((m) => m.id === user?.id)?.has_accepted_recommendation || accepting}
+                onRegenerate={role === "admin" ? () => navigate(`/assistant/${id}`, {
+                  state: {
+                    tripId: parseInt(id),
+                    tripName: trip?.name,
+                    members: members,
+                    preferences: allPreferences,
+                  },
+                }) : null}
+                generating={generating}
+              />
+              {genError && <p className="text-xs text-red-500 mt-2 font-bold">{genError}</p>}
+            </div>
+          )}
+
           {filteredPlaces.length === 0 ? (
             <div className="text-center py-10 border border-dashed border-[var(--border)] rounded-xl">
               <Compass size={24} className="text-[var(--text-dim)]/40 mx-auto mb-2" />
@@ -618,6 +702,51 @@ export default function Planner() {
               className="grid gap-4"
               style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}
             >
+              {trip?.final_destination_data?.itinerary?.filter(
+                (item) => activeDayTab === "All" || activeDayTab === `Day ${item.day}`
+              ).map((item, idx) => (
+                <Fragment key={`ai-day-frag-${idx}`}>
+                  {/* The overall plan summary for the day */}
+                  <div
+                    key={`ai-day-${idx}`}
+                    className="relative rounded-2xl border border-[var(--accent)]/50 bg-[var(--accent)]/5 p-4 flex flex-col gap-3 shadow-sm"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] shrink-0 font-bold border border-[var(--accent)]/30">
+                        Day {item.day}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-[var(--text)]">AI Suggested Plan</p>
+                        <p className="text-xs text-[var(--text-dim)] mt-1 whitespace-pre-wrap">{item.plan}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Render the specific structured places for the day exactly like normal places */}
+                  {item.places && item.places.map((place, pIdx) => (
+                    <div
+                      key={`ai-place-${idx}-${pIdx}`}
+                      className="relative rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-3.5 flex flex-col gap-3 group hover:border-[var(--accent)]/30 hover:shadow-sm transition-all"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-[var(--bg-subtle)] flex items-center justify-center text-[var(--accent)] shrink-0 font-bold border border-[var(--border)]">
+                          ✨
+                        </div>
+                        <div className="min-w-0 flex-1 pr-2">
+                          <p className="text-sm font-bold text-[var(--text)] truncate">{place.name}</p>
+                          <p className="text-[10px] text-[var(--text-dim)] line-clamp-2 mt-0.5">{place.details}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-[var(--border)]/60 pt-2.5 mt-1.5">
+                        <span className="text-[10px] text-[var(--text-dim)] font-semibold">Scheduled for:</span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[var(--accent)]/10 text-[var(--accent)]">
+                          Day {item.day}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </Fragment>
+              ))}
               {filteredPlaces.map((p) => {
                 const day = itineraryDays[p.id] || "Unscheduled";
                 return (

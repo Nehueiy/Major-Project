@@ -170,6 +170,25 @@ exports.acceptRecommendation = async (req, res) => {
           [m.user_id, id]
         );
       }
+
+      // Automatically store the AI's structured places into the permanent trip_places table
+      const tripRes = await pool.query(`SELECT final_destination_data, admin_id FROM trips WHERE id = $1`, [id]);
+      const data = tripRes.rows[0]?.final_destination_data;
+      const adminId = tripRes.rows[0]?.admin_id;
+      
+      if (data && data.itinerary && Array.isArray(data.itinerary)) {
+        for (const day of data.itinerary) {
+          if (day.places && Array.isArray(day.places)) {
+            for (const p of day.places) {
+              await pool.query(
+                `INSERT INTO trip_places (trip_id, user_id, name, address, lat, lng, place_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [id, adminId, p.name, `Day ${day.day}: ${p.details || 'AI Suggestion'}`, null, null, null]
+              );
+            }
+          }
+        }
+      }
     }
 
     res.json({ message: "Recommendation accepted successfully" });

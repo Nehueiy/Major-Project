@@ -192,10 +192,10 @@ import { Link, useLocation } from "react-router-dom";
 import { Menu, X, Plane } from "lucide-react";
 
 const navLinks = [
-  { label: "Features", href: "#features" },
-  { label: "Explore", href: "#explore" },
   { label: "About", href: "#about" },
-  { label: "Assistant", href: "#assistant" },
+   { label: "Features", href: "#features" },
+     { label: "Assistant", href: "#assistant" },
+   { label: "Explore", href: "#explore" },
 ];
 
 export default function Navbar() {

@@ -41,12 +41,6 @@ app.options(/.*/, cors());
 
 app.use(express.json());
 
-app.use((req, res, next) => {
-  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
-  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
-  next();
-});
-
 app.get("/", (req, res) => res.send("AI Trip Backend Running"));
 
 if (process.env.NODE_ENV !== "production") {

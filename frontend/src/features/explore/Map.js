@@ -1,58 +1,63 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from "@react-google-maps/api";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import { MapPin } from "lucide-react";
 
-const LIBRARIES = ["places"];
+// ✅ Fix broken default marker icon in React
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
+  iconUrl: require("leaflet/dist/images/marker-icon.png"),
+  shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
+});
 
-const darkMapStyle = [
-  { elementType: "geometry", stylers: [{ color: "#1a1a2e" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#1a1a2e" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2c2c54" }] },
-  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
-  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0d1b2a" }] },
-  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
-  { featureType: "poi", stylers: [{ visibility: "off" }] },
-  { featureType: "transit", stylers: [{ visibility: "off" }] },
-];
+// ✅ Recenter map when location loads
+function RecenterMap({ position }) {
+  const map = useMap();
+  useEffect(() => {
+    if (position) {
+      map.setView(position, 14);
+    }
+  }, [position, map]);
+  return null;
+}
 
 export default function MapPage() {
   const navigate = useNavigate();
   const [userLocation, setUserLocation] = useState(null);
-  const [selectedMarker, setSelectedMarker] = useState(null);
-  const [locationName, setLocationName] = useState("Your Location");
-  const mapRef = useRef(null);
-
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_API_KEY,
-    libraries: LIBRARIES,
-  });
+  const [locationName, setLocationName] = useState("Detecting location...");
 
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        async (pos) => {
+          const coords = [pos.coords.latitude, pos.coords.longitude];
           setUserLocation(coords);
-          if (window.google) {
-            const geocoder = new window.google.maps.Geocoder();
-            geocoder.geocode({ location: coords }, (results, status) => {
-              if (status === "OK" && results[0]) {
-                setLocationName(results[0].formatted_address);
-              }
-            });
+
+          // ✅ Free reverse geocoding using OpenStreetMap Nominatim (no API key needed)
+          try {
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?lat=${coords[0]}&lon=${coords[1]}&format=json`
+            );
+            const data = await res.json();
+            setLocationName(data.display_name || "Your Location");
+          } catch {
+            setLocationName("Your Location");
           }
         },
         () => {
-          setUserLocation({ lat: 28.2096, lng: 83.9856 });
+          setUserLocation([28.2096, 83.9856]);
           setLocationName("Pokhara, Nepal");
         }
       );
+    } else {
+      setUserLocation([28.2096, 83.9856]);
+      setLocationName("Pokhara, Nepal");
     }
-  }, [isLoaded]);
+  }, []);
 
   return (
     <DashboardLayout>
@@ -85,39 +90,30 @@ export default function MapPage() {
         className="rounded-2xl overflow-hidden border border-[var(--border)] min-h-[400px]"
         style={{ height: "calc(100vh - 220px)" }}
       >
-        {isLoaded && userLocation ? (
-          <GoogleMap
-            mapContainerStyle={{ width: "100%", height: "100%" }}
+        {userLocation ? (
+          <MapContainer
             center={userLocation}
             zoom={14}
-            onLoad={(map) => (mapRef.current = map)}
-            options={{
-              disableDefaultUI: false,
-              zoomControl: true,
-              scrollwheel: true,
-              styles: darkMapStyle,
-              fullscreenControl: false,
-              streetViewControl: false,
-              mapTypeControl: false,
-            }}
+            style={{ width: "100%", height: "100%" }}
+            zoomControl={true}
+            scrollWheelZoom={true}
+            attributionControl={false}
           >
-            <Marker
-              position={userLocation}
-              onClick={() => setSelectedMarker(userLocation)}
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
-            {selectedMarker && (
-              <InfoWindow
-                position={selectedMarker}
-                onCloseClick={() => setSelectedMarker(null)}
-              >
-                <div className="bg-[#1a1a2e] text-white px-3 py-2 rounded-lg text-xs max-w-[200px]">
+            <Marker position={userLocation}>
+              <Popup>
+                <div className="text-xs max-w-[200px]">
                   <p className="font-semibold m-0 mb-1">📍 You are here</p>
                   <p className="m-0 opacity-70 text-[0.7rem]">{locationName}</p>
                 </div>
-              </InfoWindow>
-            )}
-          </GoogleMap>
+              </Popup>
+            </Marker>
+
+            <RecenterMap position={userLocation} />
+          </MapContainer>
         ) : (
           <div className="w-full h-full bg-[var(--bg)] flex flex-col items-center justify-center gap-3 text-[var(--text-dim)]">
             <MapPin size={32} />

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Bot, Loader2 } from 'lucide-react';
 
-export default function FinalDestinationView({ trip, data, members = [], onAccept, hasAccepted }) {
+export default function FinalDestinationView({ trip, data, members = [], onAccept, hasAccepted, onRegenerate, generating }) {
   const budget = data?.budget || "N/A";
   const destination = data?.destination || "Unknown";
 
@@ -64,11 +64,21 @@ export default function FinalDestinationView({ trip, data, members = [], onAccep
 
       <div className="mt-6 flex items-center justify-between">
         <div className="text-xs text-[var(--text-dim)]">Recommended dates: <span className="font-semibold text-[var(--text)]">{data?.bestDates || 'Anytime'}</span></div>
-        <div>
+        <div className="flex items-center gap-3">
+          {onRegenerate && (
+            <button
+              onClick={onRegenerate}
+              disabled={generating}
+              className={`btn px-4 py-2 text-xs font-bold border border-[var(--border)] bg-[var(--accent)]/10 hover:bg-[var(--accent)]/20 text-[var(--accent)] transition-colors flex items-center gap-1.5 ${generating ? 'opacity-60 cursor-default' : ''}`}
+            >
+              {generating ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
+              Discuss another place with AI
+            </button>
+          )}
           <button
             onClick={onAccept}
-            disabled={hasAccepted}
-            className={`btn btn-primary px-4 py-2 text-xs font-bold ${hasAccepted ? 'opacity-60 cursor-default' : ''}`}
+            disabled={hasAccepted || generating}
+            className={`btn btn-primary px-4 py-2 text-xs font-bold ${hasAccepted || generating ? 'opacity-60 cursor-default' : ''}`}
           >
             {hasAccepted ? 'Accepted' : 'Accept recommendation'}
           </button>

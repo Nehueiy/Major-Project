@@ -1,4 +1,4 @@
- import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { MapPin, Trash2, Plus, Search } from "lucide-react";
 import API from "../../services/api";
 
@@ -9,7 +9,7 @@ export default function TripPlaces({ tripId }) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  
+
   const mapRef = useRef(null);
   const googleMapInstance = useRef(null);
   const markersRef = useRef([]);
@@ -24,30 +24,41 @@ export default function TripPlaces({ tripId }) {
       .finally(() => setLoading(false));
   }, [tripId]);
 
-  // Robust poll initialization checking for window.google readiness
+  // Poll until Google Maps is ready
   useEffect(() => {
     let checkGoogleInterval = setInterval(() => {
-      if (window.google && window.google.maps && window.google.maps.places && mapRef.current) {
+      if (
+        window.google &&
+        window.google.maps &&
+        window.google.maps.places &&
+        window.google.maps.marker &&          // ✅ check marker library too
+        mapRef.current
+      ) {
         clearInterval(checkGoogleInterval);
         initMap();
       }
-    }, 300); // Check every 300ms
+    }, 300);
 
     return () => clearInterval(checkGoogleInterval);
   }, [loading]);
 
   const initMap = () => {
-    if (googleMapInstance.current) return; // Prevent duplicate injection
+    if (googleMapInstance.current) return; // Prevent duplicate init
 
     try {
-      autocompleteService.current = new window.google.maps.places.AutocompleteService();
-      
+      autocompleteService.current =
+        new window.google.maps.places.AutocompleteService();
+
       googleMapInstance.current = new window.google.maps.Map(mapRef.current, {
-        center: { lat: 28.3949, lng: 84.1240 }, // Nepal Bounds
+        center: { lat: 28.3949, lng: 84.124 },
         zoom: 7,
+        mapId: "YOUR_MAP_ID_HERE", // ✅ required for AdvancedMarkerElement
       });
 
-      placesService.current = new window.google.maps.places.PlacesService(googleMapInstance.current);
+      placesService.current = new window.google.maps.places.PlacesService(
+        googleMapInstance.current
+      );
+
       renderMarkers();
     } catch (error) {
       console.error("Google Maps SDK failed to construct:", error);
@@ -57,19 +68,27 @@ export default function TripPlaces({ tripId }) {
   const renderMarkers = () => {
     if (!googleMapInstance.current) return;
 
-    markersRef.current.forEach(m => m.setMap(null));
+    // ✅ Clear old markers correctly for AdvancedMarkerElement
+    markersRef.current.forEach((m) => (m.map = null));
     markersRef.current = [];
 
     if (places.length === 0) return;
+
     const bounds = new window.google.maps.LatLngBounds();
 
     places.forEach((place) => {
       if (!place.lat || !place.lng) return;
-      const position = { lat: parseFloat(place.lat), lng: parseFloat(place.lng) };
 
-      const marker = new AdvancedMarkerElement({
-        position:{lat, lng},
-        map:  map,
+      // ✅ Fix 1 — define position properly
+      const position = {
+        lat: parseFloat(place.lat),
+        lng: parseFloat(place.lng),
+      };
+
+      // ✅ Fix 2 — use position and googleMapInstance.current
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        position: position,
+        map: googleMapInstance.current,
         title: place.name,
       });
 
@@ -98,7 +117,10 @@ export default function TripPlaces({ tripId }) {
     autocompleteService.current.getPlacePredictions(
       { input: val },
       (predictions, status) => {
-        if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+        if (
+          status === window.google.maps.places.PlacesServiceStatus.OK &&
+          predictions
+        ) {
           setSuggestions(predictions);
           setShowSuggestions(true);
         }
@@ -114,9 +136,15 @@ export default function TripPlaces({ tripId }) {
     if (!placesService.current) return;
 
     placesService.current.getDetails(
-      { placeId: suggestion.place_id, fields: ["name", "formatted_address", "geometry"] },
+      {
+        placeId: suggestion.place_id,
+        fields: ["name", "formatted_address", "geometry"],
+      },
       async (place, status) => {
-        if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
+        if (
+          status === window.google.maps.places.PlacesServiceStatus.OK &&
+          place
+        ) {
           try {
             const lat = place.geometry.location.lat();
             const lng = place.geometry.location.lng();
@@ -188,15 +216,27 @@ export default function TripPlaces({ tripId }) {
 
           <div className="flex flex-col gap-3">
             {places.length === 0 ? (
-              <p className="text-sm text-slate-400">No destinations added yet.</p>
+              <p className="text-sm text-slate-400">
+                No destinations added yet.
+              </p>
             ) : (
               places.map((place) => (
-                <div key={place.id} className="flex items-center justify-between rounded-[10px] border border-slate-200 bg-slate-50 px-4 py-3">
+                <div
+                  key={place.id}
+                  className="flex items-center justify-between rounded-[10px] border border-slate-200 bg-slate-50 px-4 py-3"
+                >
                   <div>
-                    <p className="m-0 text-sm font-semibold text-slate-900">{place.name}</p>
-                    <p className="m-0 text-xs text-slate-500">{place.address}</p>
+                    <p className="m-0 text-sm font-semibold text-slate-900">
+                      {place.name}
+                    </p>
+                    <p className="m-0 text-xs text-slate-500">
+                      {place.address}
+                    </p>
                   </div>
-                  <button onClick={() => handleDelete(place.id)} className="text-slate-500 transition-colors hover:text-slate-700">
+                  <button
+                    onClick={() => handleDelete(place.id)}
+                    className="text-slate-500 transition-colors hover:text-slate-700"
+                  >
                     <Trash2 size={15} />
                   </button>
                 </div>
@@ -205,9 +245,11 @@ export default function TripPlaces({ tripId }) {
           </div>
         </div>
 
-        <div ref={mapRef} className="h-[350px] rounded-[12px] border border-slate-200 bg-slate-100 w-full" />
+        <div
+          ref={mapRef}
+          className="h-[350px] rounded-[12px] border border-slate-200 bg-slate-100 w-full"
+        />
       </div>
     </div>
   );
 }
-

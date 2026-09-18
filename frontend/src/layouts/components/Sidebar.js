@@ -2,7 +2,9 @@
 import React, { useEffect, useState, useRef } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { GoogleMap, useJsApiLoader, Marker } from "@react-google-maps/api";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 import {
   LayoutDashboard,
   Home,
@@ -16,6 +18,14 @@ import {
   MapPin,
 } from "lucide-react";
 
+// ✅ Fix default marker icon broken in React
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
+  iconUrl: require("leaflet/dist/images/marker-icon.png"),
+  shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
+});
+
 const navItems = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { label: "Home", path: "/home", icon: Home },
@@ -26,79 +36,55 @@ const navItems = [
   { label: "Profile", path: "/profile", icon: User },
 ];
 
-const LIBRARIES = ["places"];
-
-const tealMapStyle = [
-  { elementType: "geometry", stylers: [{ color: "#0d1716" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#0d1716" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#4d7c75" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#122a26" }] },
-  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#0e2420" }] },
-  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8bb8b3" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#061a18" }] },
-  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#14b8a6" }] },
-  { featureType: "landscape.natural", elementType: "geometry", stylers: [{ color: "#0f2e2a" }] },
-  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#113530" }] },
-  { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
-  { featureType: "transit", stylers: [{ visibility: "off" }] },
-];
+// ✅ Helper to re-center map when sidebar collapses/expands
+function RecenterMap({ position }) {
+  const map = useMap();
+  useEffect(() => {
+    if (position) {
+      setTimeout(() => {
+        map.invalidateSize();
+        map.setView(position, 13);
+      }, 400);
+    }
+  }, [position, map]);
+  return null;
+}
 
 export default function Sidebar({ isCollapsed }) {
   const { logout } = useAuth();
   const navigate = useNavigate();
   const [userLocation, setUserLocation] = useState(null);
-  const mapRef = useRef(null);
 
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_API_KEY,
-    libraries: LIBRARIES,
-  });
-
+  // ✅ Get user's live location
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => setUserLocation({ lat: 28.2096, lng: 83.9856 })
+        (pos) =>
+          setUserLocation([pos.coords.latitude, pos.coords.longitude]),
+        () => setUserLocation([28.2096, 83.9856]) // fallback: Pokhara, Nepal
       );
+    } else {
+      setUserLocation([28.2096, 83.9856]);
     }
   }, []);
-
-  useEffect(() => {
-    if (mapRef.current && userLocation) {
-      const timer = setTimeout(() => {
-        const google = window.google;
-        if (google && google.maps) {
-          google.maps.event.trigger(mapRef.current, "resize");
-          mapRef.current.panTo(userLocation);
-        }
-      }, 400);
-      return () => clearTimeout(timer);
-    }
-  }, [isCollapsed, userLocation]);
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
 
-  const onLoad = (map) => {
-    mapRef.current = map;
-  };
-
-  const onUnmount = () => {
-    mapRef.current = null;
-  };
-
   return (
     <aside
       className={`sticky top-0 z-10 flex h-screen flex-col border-r border-slate-200 bg-[var(--bg-card)] shadow-[4px_0_24px_rgba(0,0,0,0.01)] transition-all duration-500 ease-in-out ${
-        isCollapsed ? "w-20 min-w-[80px] px-2 py-8" : "w-[290px] min-w-[290px] px-6 py-8"
+        isCollapsed
+          ? "w-20 min-w-[80px] px-2 py-8"
+          : "w-[290px] min-w-[290px] px-6 py-8"
       }`}
     >
       <div className="flex h-full flex-col overflow-hidden overflow-y-auto">
-        <div
-          className={`mb-10 ${isCollapsed ? "text-center" : "text-left pl-2"}`}
-        >
+
+        {/* ── Brand ── */}
+        <div className={`mb-10 ${isCollapsed ? "text-center" : "text-left pl-2"}`}>
           <div
             className={`cinzel font-black tracking-[0.08em] text-[var(--accent)] transition-all duration-300 ${
               isCollapsed ? "text-2xl" : "text-[1.65rem]"
@@ -115,6 +101,7 @@ export default function Sidebar({ isCollapsed }) {
           </div>
         </div>
 
+        {/* ── Nav ── */}
         <nav className="mb-8 flex flex-col gap-2">
           {navItems.map(({ label, path, icon: IconComponent }) => (
             <NavLink
@@ -142,7 +129,10 @@ export default function Sidebar({ isCollapsed }) {
           ))}
         </nav>
 
+        {/* ── Bottom section ── */}
         <div className="mt-auto">
+
+          {/* ── Leaflet Map ── */}
           <div
             className={`overflow-hidden rounded-3xl transition-all duration-300 ${
               isCollapsed ? "max-h-0 opacity-0" : "mb-6 max-h-[220px] opacity-100"
@@ -155,37 +145,45 @@ export default function Sidebar({ isCollapsed }) {
                 Live
               </span>
             </div>
+
             <div
               onClick={() => navigate("/map")}
-              className="relative h-[180px] w-full cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-slate-100"
+              className="relative h-[180px] w-full cursor-pointer overflow-hidden rounded-3xl border border-slate-200"
             >
-              {isLoaded && userLocation ? (
-                <GoogleMap
-                  mapContainerClassName="absolute inset-0"
+              {userLocation ? (
+                <MapContainer
                   center={userLocation}
                   zoom={13}
-                  onLoad={onLoad}
-                  onUnmount={onUnmount}
-                  options={{
-                    disableDefaultUI: true,
-                    zoomControl: false,
-                    scrollwheel: false,
-                    gestureHandling: "none",
-                    styles: tealMapStyle,
-                  }}
+                  style={{ height: "180px", width: "100%" }}
+                  zoomControl={false}
+                  scrollWheelZoom={false}
+                  dragging={false}
+                  doubleClickZoom={false}
+                  attributionControl={false}
                 >
-                  <Marker position={userLocation} />
-                </GoogleMap>
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <Marker position={userLocation}>
+                    <Popup>You are here</Popup>
+                  </Marker>
+                  {/* ✅ Re-centers map when sidebar collapses */}
+                  <RecenterMap position={userLocation} />
+                </MapContainer>
               ) : (
-                <div className="absolute inset-0 bg-slate-100" />
+                <div className="absolute inset-0 bg-slate-100 flex items-center justify-center text-xs text-slate-400">
+                  Getting location...
+                </div>
               )}
-              <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-lg bg-slate-950/85 px-2 py-1 text-[0.65rem] text-white backdrop-blur-sm">
+
+              <div className="absolute bottom-2 right-2 z-[999] flex items-center gap-1 rounded-lg bg-slate-950/85 px-2 py-1 text-[0.65rem] text-white backdrop-blur-sm pointer-events-none">
                 <Maximize2 size={10} />
                 Expand Map
               </div>
             </div>
           </div>
 
+          {/* ── Logout ── */}
           <button
             onClick={handleLogout}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF1F2] px-4 py-3 text-sm font-semibold text-[#F43F5E] transition hover:bg-[#FFE4E6]"
